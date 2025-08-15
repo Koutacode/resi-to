@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>レシートAI解析 PWA</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Theme Color for PWA -->
+    <meta name="theme-color" content="#4a90e2">
+    <style>
+        /* 簡単なアニメーション */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="max-w-2xl mx-auto p-4">
+        <header class="bg-blue-600 text-white p-4 rounded-lg shadow-md mb-6">
+            <h1 class="text-2xl font-bold text-center">レシートAI解析 PWA</h1>
+        </header>
+
+        <main>
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <!-- 画像入力エリア -->
+                <div class="flex flex-col sm:flex-row gap-4 mb-6">
+                    <button id="selectImageBtn" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
+                        ファイルから選択
+                    </button>
+                    <input type="file" id="imageInput" accept="image/*" class="hidden">
+                </div>
+
+                <!-- 結果表示エリア -->
+                <div id="resultArea" class="space-y-4">
+                    <!-- 初期メッセージ -->
+                    <div id="initialMessage" class="text-center text-gray-500">
+                        <p>レシート画像を選択すると解析を開始します。</p>
+                    </div>
+
+                    <!-- プレビュー画像 -->
+                    <div id="imagePreviewContainer" class="hidden text-center">
+                        <h2 class="text-lg font-semibold mb-2">選択した画像</h2>
+                        <img id="imagePreview" src="" alt="レシートのプレビュー" class="max-w-full max-h-64 mx-auto rounded-lg shadow-sm">
+                        <hr class="my-4">
+                    </div>
+                    
+                    <!-- ローディング表示 -->
+                    <div id="loadingIndicator" class="hidden text-center py-4">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                        <p class="mt-3 text-gray-600">AIが解析中です...</p>
+                    </div>
+
+                    <!-- エラー表示 -->
+                    <div id="errorMessage" class="hidden p-4 bg-red-100 text-red-700 rounded-lg"></div>
+
+                    <!-- 編集フォーム -->
+                    <div id="editForm" class="hidden space-y-4 fade-in">
+                         <h2 class="text-lg font-semibold text-center">AIによる解析結果</h2>
+                        <div>
+                            <label for="vendorName" class="block text-sm font-medium text-gray-700">支払先</label>
+                            <input type="text" id="vendorName" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="paymentDate" class="block text-sm font-medium text-gray-700">支払日 (YYYY-MM-DD)</label>
+                            <input type="date" id="paymentDate" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="totalAmount" class="block text-sm font-medium text-gray-700">合計金額</label>
+                            <input type="number" id="totalAmount" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="expenseCategory" class="block text-sm font-medium text-gray-700">勘定科目</label>
+                            <select id="expenseCategory" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                                <option>消耗品費</option>
+                                <option>旅費交通費</option>
+                                <option>接待交際費</option>
+                                <option>会議費</option>
+                                <option>通信費</option>
+                                <option>広告宣伝費</option>
+                                <option>福利厚生費</option>
+                                <option>新聞図書費</option>
+                                <option>雑費</option>
+                            </select>
+                        </div>
+                        <button id="saveBtn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
+                            この内容で保存する
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- DOM要素の取得 ---
+        const selectImageBtn = document.getElementById('selectImageBtn');
+        const imageInput = document.getElementById('imageInput');
+        
+        const resultArea = document.getElementById('resultArea');
+        const initialMessage = document.getElementById('initialMessage');
+        const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+        const imagePreview = document.getElementById('imagePreview');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const errorMessage = document.getElementById('errorMessage');
+        const editForm = document.getElementById('editForm');
+        const saveBtn = document.getElementById('saveBtn');
+
+        // --- 状態管理 ---
+        const ui = {
+            showInitial: () => {
+                initialMessage.classList.remove('hidden');
+                loadingIndicator.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                editForm.classList.add('hidden');
+                imagePreviewContainer.classList.add('hidden');
+            },
+            showLoading: () => {
+                initialMessage.classList.add('hidden');
+                loadingIndicator.classList.remove('hidden');
+                errorMessage.classList.add('hidden');
+                editForm.classList.add('hidden');
+            },
+            showError: (message) => {
+                initialMessage.classList.add('hidden');
+                loadingIndicator.classList.add('hidden');
+                errorMessage.textContent = `エラー: ${message}`;
+                errorMessage.classList.remove('hidden');
+                editForm.classList.add('hidden');
+            },
+            showForm: (data) => {
+                initialMessage.classList.add('hidden');
+                loadingIndicator.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                editForm.classList.remove('hidden');
+                // フォームにデータを設定
+                document.getElementById('vendorName').value = data.vendor_name || '';
+                // 日付形式を YYYY-MM-DD に合わせる
+                document.getElementById('paymentDate').value = data.payment_date || '';
+                document.getElementById('totalAmount').value = data.total_amount || '';
+                document.getElementById('expenseCategory').value = data.expense_category || '雑費';
+            },
+            showImagePreview: (src) => {
+                imagePreview.src = src;
+                imagePreviewContainer.classList.remove('hidden');
+            }
+        };
+
+        // --- イベントリスナー ---
+        selectImageBtn.addEventListener('click', () => imageInput.click());
+        imageInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            ui.showImagePreview(URL.createObjectURL(file));
+            ui.showLoading();
+
+            try {
+                const base64Image = await fileToBase64(file);
+                const result = await analyzeReceipt(base64Image);
+                ui.showForm(result);
+            } catch (error) {
+                console.error('解析エラー:', error);
+                ui.showError(error.message);
+            }
+        });
+        
+        saveBtn.addEventListener('click', () => {
+            // TODO: IndexedDBなどに保存するロジックをここに追加
+            alert('保存処理は現在実装中です。');
+        });
+
+        // --- ロジック関数 ---
+
+        /**
+         * FileオブジェクトをBase64文字列に変換
+         */
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        /**
+         * Gemini APIを呼び出してレシートを解析
+         */
+        async function analyzeReceipt(base64ImageData) {
+            // ★★★★★ ご自身のAPIキーに書き換えてください ★★★★★
+            const API_KEY = "YOUR_GEMINI_API_KEY"; 
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+
+            const prompt = `あなたは優秀な経費精算アシスタントです。日本の商習慣に基づき、提供されたレシートの画像から以下の情報を抽出し、指定されたJSON形式で出力してください。
+制約条件:
+* JSONオブジェクトのみを返し、他の説明文は一切含めないでください。
+* 情報が読み取れない、または存在しない項目の値は null としてください。
+* 日付は必ず YYYY-MM-DD 形式に正規化してください。和暦（例: 令和7年、R7）は西暦に変換してください。
+* 金額は数値（Integer）のみを抽出してください。通貨記号（¥）やカンマは含めないでください。
+* 勘定科目は、レシートの内容（店名や購入品目）を総合的に判断し、以下のリストから最も適切と思われるものを一つだけ選択してください: 消耗品費, 旅費交通費, 接待交際費, 会議費, 通信費, 広告宣伝費, 福利厚生費, 新聞図書費, 雑費
+JSON出力形式:
+{
+  "vendor_name": "支払先の名称",
+  "payment_date": "YYYY-MM-DD",
+  "total_amount": 12345,
+  "expense_category": "選択した勘定科目"
+}`;
+
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inline_data: { mime_type: "image/jpeg", data: base64ImageData } }
+                    ]
+                }]
+            };
+
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.json();
+                throw new Error(`APIエラー: ${errorBody.error?.message || response.statusText}`);
+            }
+
+            const result = await response.json();
+            const jsonText = result.candidates[0].content.parts[0].text
+                .replace(/```json/g, '')
+                .replace(/```/g, '')
+                .trim();
+            
+            return JSON.parse(jsonText);
+        }
+
+        // --- PWA Service Workerの登録 ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(registration => {
+                    console.log('ServiceWorker登録成功:', registration.scope);
+                }).catch(error => {
+                    console.log('ServiceWorker登録失敗:', error);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
